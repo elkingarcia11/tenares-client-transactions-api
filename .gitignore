@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+
+# Node
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Firebase local artifacts
+.firebase/
+firebase-debug.log
+ui-debug.log
+
+# GCP / Firebase credentials (keys/tokens)
+*serviceAccount*.json
+*service-account*.json
+*sa-key*.json
+application_default_credentials.json

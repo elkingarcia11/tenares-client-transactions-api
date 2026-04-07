@@ -1,0 +1,365 @@
+# API (Cloud Run + Functions Framework)
+
+This repo is intended to be deployed as a **Cloud Run service** using **Functions Framework**.
+
+## What is deployed
+
+Functions Framework exposes **HTTP functions** registered via `@google-cloud/functions-framework`.
+
+Registered HTTP functions:
+
+- `api` (JSON API router)
+- `helloHttp` (demo)
+
+## Local run
+
+From the `functions/` directory:
+
+- Install deps: `npm i`
+- Run locally: `npm start`
+  - This runs `functions-framework --source=index.js --target=api`
+
+## Conventions (HTTP)
+
+- **Content-Type**: prefer JSON for APIs; `helloHttp` responds with plain text.
+- **Auth**: for Cloud Run you typically enforce either:
+  - **Cloud Run IAM** (service requires authentication), or
+  - **Firebase Auth ID tokens** verified server-side (requires custom implementation).
+
+---
+
+## HTTP Functions (Cloud Run)
+
+### `api` (HTTP, JSON)
+
+This is the primary HTTP entrypoint. It routes based on path + method.
+
+#### Auth model
+
+- For endpoints that require auth, send:
+  - `Authorization: Bearer <Firebase ID token>`
+- Admin-only endpoints require the token to include the custom claim:
+  - `role: "admin"` (or `roles` array including `"admin"`)
+
+#### Common responses
+
+- **Success**: JSON body
+- **Error**:
+
+```json
+{
+  "error": { "code": "unauthenticated|permission-denied|invalid-argument|not-found|internal", "message": "..." }
+}
+```
+
+#### Routes
+
+##### Health
+
+- `GET /healthz`
+  - **Auth**: none
+  - **Return**: `{ "ok": true }`
+
+##### Users
+
+- `GET /users/me`
+  - **Auth**: required
+  - **Return**:
+
+```json
+{ "uid": "string", "role": "admin|secretary|null", "isAdmin": true, "isSecretary": false }
+```
+
+- `POST /users/setRole`
+  - **Auth**: **admin only**
+  - **Request**:
+
+```json
+{ "targetUid": "string", "newRole": "admin|secretary" }
+```
+
+  - **Return**:
+
+```json
+{ "success": true, "targetUid": "string", "newRole": "admin|secretary" }
+```
+
+##### Clients
+
+- `POST /clients/checkDuplicate`
+  - **Auth**: none enforced by endpoint
+  - **Request**:
+
+```json
+{ "name": "string", "date_added": "mm-dd-yyyy", "amount": 12.34 }
+```
+
+  - **Return**:
+
+```json
+{ "status": "duplicate exists|duplicate does not exist" }
+```
+
+- `POST /clients`
+  - **Auth**: **admin only**
+  - **Request**: same fields as before:
+    - `name`, `amount`, `date_added`, `date_processed`, `invoice`, `receipt`, optional `hours/minutes/seconds`
+  - **Return**:
+
+```json
+{ "success": true, "docId": "string" }
+```
+
+- `PATCH /clients/{docId}`
+  - **Auth**: **admin only**
+  - **Request**: partial update payload (any of: `name`, `amount`, `date_added`, `date_processed`, `invoice`, `receipt`, and optional `hours/minutes/seconds`)
+  - **Return**:
+
+```json
+{ "success": true, "docId": "string" }
+```
+
+- `DELETE /clients/{docId}`
+  - **Auth**: **admin only**
+  - **Return**:
+
+```json
+{ "success": true, "docId": "string" }
+```
+
+### `helloHttp` (HTTP)
+
+- **Method**: any (Functions Framework accepts all; treat it as GET/POST friendly)
+- **Request**
+  - Optional query param: `name`
+  - Optional JSON body: `{ "name": "..." }`
+- **Response**
+  - `text/plain`
+  - Body: `Hello <name>!` (defaults to `World`)
+
+---
+## Firebase Functions code (internal)
+
+The repo still contains Firebase Functions-style callable/trigger exports under `functions/src/*` mainly to reuse logic and keep parity, but **Cloud Run clients should use the HTTP routes above**.
+
+### `addClientDocument` (callable)
+
+- **Auth**: **admin only**
+- **Request**
+
+```json
+{
+  "name": "string",
+  "amount": 12.34,
+  "date_added": "mm-dd-yyyy",
+  "date_processed": "yyyy-mm-dd",
+  "invoice": "string",
+  "receipt": "string",
+
+  "hours": 11,
+  "minutes": 28,
+  "seconds": 19
+}
+```
+
+- **Notes**
+  - `name` is stored as `trim().toLowerCase()`
+  - `amount` must be a finite number > 0
+  - `date_added` is converted to a Firestore `Timestamp` using a UTC-4 offset
+  - Optional `hours/minutes/seconds` default to `11/28/19`
+  - Writes `_sanitized: true`
+
+- **Return**
+
+```json
+{ "success": true, "docId": "string" }
+```
+
+- **Errors**
+  - `unauthenticated`: not signed in
+  - `permission-denied`: not an admin
+  - `invalid-argument`: missing/invalid fields
+  - `internal`: Firestore write failed
+
+---
+
+### `updateClientDocument` (callable)
+
+- **Auth**: **admin only**
+- **Request**
+
+```json
+{
+  "docId": "string",
+
+  "name": "string",
+  "amount": 12.34,
+  "date_added": "mm-dd-yyyy",
+  "date_processed": "yyyy-mm-dd",
+  "invoice": "string",
+  "receipt": "string",
+
+  "hours": 11,
+  "minutes": 28,
+  "seconds": 19
+}
+```
+
+- **Notes**
+  - `docId` is required
+  - At least one updatable field must be present
+  - Writes `_sanitized: true`
+
+- **Return**
+
+```json
+{ "success": true, "docId": "string" }
+```
+
+- **Errors**
+  - `unauthenticated`: not signed in
+  - `permission-denied`: not an admin
+  - `invalid-argument`: missing/invalid fields
+  - `not-found`: document does not exist
+  - `internal`: Firestore update failed
+
+---
+
+### `deleteClientDocument` (callable)
+
+- **Auth**: **admin only**
+- **Request**
+
+```json
+{ "docId": "string" }
+```
+
+- **Return**
+
+```json
+{ "success": true, "docId": "string" }
+```
+
+- **Errors**
+  - `unauthenticated`: not signed in
+  - `permission-denied`: not an admin
+  - `invalid-argument`: missing/invalid `docId`
+  - `not-found`: document does not exist
+  - `internal`: Firestore delete failed
+
+---
+
+### `checkClientDuplicate` (callable)
+
+- **Auth**: none enforced by function (callable can be invoked by any client)
+- **Request**
+
+```json
+{
+  "name": "string",
+  "date_added": "mm-dd-yyyy",
+  "amount": 12.34
+}
+```
+
+- **Return**
+
+```json
+{ "status": "duplicate exists" }
+```
+
+or
+
+```json
+{ "status": "duplicate does not exist" }
+```
+
+- **Errors**
+  - `invalid-argument`: missing/invalid fields
+  - `internal`: Firestore query failed
+
+---
+
+### `sanitizeClientDocument` (firestore trigger)
+
+- **Type**: trigger on writes to `clients/{docId}`
+- **Purpose**
+  - Validates/sanitizes the document fields on create/update.
+  - Uses `_sanitized` flag to prevent infinite loops.
+  - On invalid **create**: deletes the document.
+  - On invalid **update**: restores the previous version.
+  - Logs a record to `clients_sanitization_errors`.
+
+- **No direct request/return** (trigger function).
+
+---
+
+## Users / Roles
+
+### `setUserRole` (callable)
+
+- **Auth**: **admin only**
+- **Request**
+
+```json
+{
+  "targetUid": "string",
+  "newRole": "admin"
+}
+```
+
+or
+
+```json
+{
+  "targetUid": "string",
+  "newRole": "secretary"
+}
+```
+
+- **Behavior**
+  - Sets Firebase Auth custom claims on the target user:
+
+```json
+{ "role": "admin|secretary" }
+```
+
+- **Return**
+
+```json
+{ "success": true, "targetUid": "string", "newRole": "admin|secretary" }
+```
+
+- **Errors**
+  - `unauthenticated`: not signed in
+  - `permission-denied`: not an admin
+  - `invalid-argument`: missing/invalid `targetUid` or `newRole`
+  - `not-found`: target user does not exist
+  - `internal`: failed setting claims
+
+- **Client note**
+  - After changing claims, the target user usually needs to **refresh their ID token**
+    (sign out/in, or call `getIdToken(true)` on the client) for new claims to appear.
+
+---
+
+### `verifyCaller` (callable)
+
+- **Auth**: authenticated user (any role)
+- **Request**
+  - No payload required.
+
+- **Return**
+
+```json
+{
+  "uid": "string",
+  "role": "admin|secretary|null",
+  "isAdmin": true,
+  "isSecretary": false
+}
+```
+
+- **Errors**
+  - `unauthenticated`: not signed in
+
