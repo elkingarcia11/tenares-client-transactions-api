@@ -8,22 +8,25 @@ const clientSvc = require("../services/clients");
 const userSvc = require("../services/users");
 
 function applyCors(req, res) {
-  // Configure allowed origins via env var if needed (comma-separated).
-  // Default: allow all origins (safest for development; restrict in production).
+  // TEMP (local dev): hardcode your frontend origin.
+  // Remove this and rely on CORS_ORIGINS when you're done testing.
+  const hardcodedLocalOrigin = "http://localhost:5173";
   const configured = process.env.CORS_ORIGINS;
   const origin = req.headers.origin;
 
-  if (!configured) {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-  } else if (origin) {
-    const allowed = configured
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (allowed.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-      res.setHeader("Vary", "Origin");
-    }
+  const allowed = [
+    hardcodedLocalOrigin,
+    ...(!configured
+      ? []
+      : configured
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)),
+  ];
+
+  if (origin && allowed.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
   }
 
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
