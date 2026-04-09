@@ -26,11 +26,12 @@ This file documents the recommended client workflows for managing documents in t
 
 - **2) (Optional, recommended) duplicate check**
   - Call `POST /clients/checkDuplicate` with JSON `{ name, date_added, amount }`.
+  - Use `date_added` as the **mm-dd-yyyy (UTC-4)** date you consider “today” for your business rules.
   - If it returns `"duplicate exists"`, show a warning / require confirmation before continuing.
 
 - **3) call create**
   - Call `POST /clients` (with `Authorization` header) using JSON:
-    - `{ name, amount, date_added, date_processed, invoice, receipt, hours?, minutes?, seconds? }`
+    - `{ name, amount, date_processed, invoice, receipt }`
   - On success: `{ success: true, docId }`.
 
 - **4) error handling**
@@ -51,11 +52,10 @@ This file documents the recommended client workflows for managing documents in t
 - **3) build update payload**
   - Payload must include:
     - `docId`
-    - at least one of: `name`, `amount`, `date_added`, `date_processed`, `invoice`, `receipt`
-  - If you include `date_added`, you may include `hours/minutes/seconds`.
+    - at least one of: `name`, `amount`, `date_processed`, `invoice`, `receipt`
 
 - **4) (Recommended) duplicate prevention before update**
-  - Duplicates are defined by the triple: **`name` + `date_added` + `amount`**.
+  - Duplicates are defined by the triple: **`name` + `date_added (mm-dd-yyyy UTC-4)` + `amount`**.
   - If **none** of these three fields are changing, skip this step.
   - If **any** are changing:
     - Compute the “prospective” triple using:

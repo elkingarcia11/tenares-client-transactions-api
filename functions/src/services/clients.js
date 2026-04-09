@@ -1,29 +1,19 @@
 const { HttpsError } = require("firebase-functions/v2/https");
 const { Timestamp } = require("firebase-admin/firestore");
 
-function parseMmDdYyyyToTimestampUtcMinus4(dateAdded, hours = 11, minutes = 28, seconds = 19) {
-  const DATE_REGEX = /^(\d{2})-(\d{2})-(\d{4})$/;
-  if (typeof dateAdded !== "string" || !DATE_REGEX.test(dateAdded.trim())) {
-    throw new HttpsError("invalid-argument", "date_added must be a string in mm-dd-yyyy format.");
-  }
-  const [, mm, dd, yyyy] = dateAdded.trim().match(DATE_REGEX);
-  const month = parseInt(mm, 10);
-  const day = parseInt(dd, 10);
-  const year = parseInt(yyyy, 10);
+function formatMmDdYyyyUtcMinus4(timestamp) {
+  const date = timestamp instanceof Timestamp ? timestamp.toDate() : new Date(timestamp);
 
-  const UTC_OFFSET_MS = 4 * 60 * 60 * 1000; // UTC-4
-  const localEpochMs = Date.UTC(year, month - 1, day, hours, minutes, seconds) + UTC_OFFSET_MS;
+  // Convert "now" into the wall-clock date in UTC-4.
+  // We only need the calendar date for duplicate checking and UI grouping.
+  const UTC_MINUS_4_MS = -4 * 60 * 60 * 1000;
+  const utcMs = date.getTime();
+  const shifted = new Date(utcMs + UTC_MINUS_4_MS);
 
-  const dateCheck = new Date(localEpochMs - UTC_OFFSET_MS);
-  if (
-    dateCheck.getUTCFullYear() !== year ||
-    dateCheck.getUTCMonth() !== month - 1 ||
-    dateCheck.getUTCDate() !== day
-  ) {
-    throw new HttpsError("invalid-argument", `date_added "${dateAdded}" is not a real calendar date.`);
-  }
-
-  return Timestamp.fromMillis(localEpochMs);
+  const mm = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(shifted.getUTCDate()).padStart(2, "0");
+  const yyyy = String(shifted.getUTCFullYear());
+  return `${mm}-${dd}-${yyyy}`;
 }
 
 function parseYyyyMmDd(dateProcessed) {
@@ -59,7 +49,7 @@ function requireNonEmptyString(value, fieldName) {
 }
 
 async function addClientDocument({ db, data }) {
-  const REQUIRED = ["name", "amount", "date_added", "date_processed", "invoice", "receipt"];
+  const REQUIRED = ["name", "amount", "date_processed", "invoice", "receipt"];
   const missing = REQUIRED.filter((f) => data[f] === undefined || data[f] === null);
   if (missing.length) {
     throw new HttpsError("invalid-argument", `Missing required fields: ${missing.join(", ")}.`);
@@ -68,17 +58,26 @@ async function addClientDocument({ db, data }) {
   const name = requireNonEmptyString(data.name, "name").toLowerCase();
   const amount = coercePositiveAmount(data.amount);
 
-  const hours = Number.isInteger(data.hours) ? data.hours : 11;
-  const minutes = Number.isInteger(data.minutes) ? data.minutes : 28;
-  const seconds = Number.isInteger(data.seconds) ? data.seconds : 19;
-
-  const date_added = parseMmDdYyyyToTimestampUtcMinus4(data.date_added, hours, minutes, seconds);
+  // Server-generated Timestamp (shows like "March 30, 2024 at 11:28:19 AM UTC-4" in Firestore console
+  // depending on your viewer timezone).
+  const date_added = Timestamp.now();
+  // Store a stable mm-dd-yyyy key (UTC-4) for duplicate checks.
+  const date_added_key = formatMmDdYyyyUtcMinus4(date_added);
   const date_processed = parseYyyyMmDd(data.date_processed);
 
   const invoice = requireNonEmptyString(data.invoice, "invoice");
   const receipt = requireNonEmptyString(data.receipt, "receipt");
 
-  const newDoc = { name, amount, date_added, date_processed, invoice, receipt, _sanitized: true };
+  const newDoc = {
+    name,
+    amount,
+    date_added,
+    date_added_key,
+    date_processed,
+    invoice,
+    receipt,
+    _sanitized: true,
+  };
 
   try {
     const docRef = await db.collection("clients").add(newDoc);
@@ -99,7 +98,7 @@ async function updateClientDocument({ db, docId, data }) {
   const docSnap = await docRef.get();
   if (!docSnap.exists) throw new HttpsError("not-found", `No client document found with ID: ${id}`);
 
-  const UPDATABLE_FIELDS = ["name", "amount", "date_added", "date_processed", "invoice", "receipt"];
+  const UPDATABLE_FIELDS = ["name", "amount", "date_processed", "invoice", "receipt"];
   const provided = UPDATABLE_FIELDS.filter((f) => data[f] !== undefined && data[f] !== null);
   if (provided.length === 0) {
     throw new HttpsError(
@@ -112,13 +111,6 @@ async function updateClientDocument({ db, docId, data }) {
 
   if (data.name !== undefined) updates.name = requireNonEmptyString(data.name, "name").toLowerCase();
   if (data.amount !== undefined) updates.amount = coercePositiveAmount(data.amount);
-
-  if (data.date_added !== undefined) {
-    const hours = Number.isInteger(data.hours) ? data.hours : 11;
-    const minutes = Number.isInteger(data.minutes) ? data.minutes : 28;
-    const seconds = Number.isInteger(data.seconds) ? data.seconds : 19;
-    updates.date_added = parseMmDdYyyyToTimestampUtcMinus4(data.date_added, hours, minutes, seconds);
-  }
 
   if (data.date_processed !== undefined) updates.date_processed = parseYyyyMmDd(data.date_processed);
   if (data.invoice !== undefined) updates.invoice = requireNonEmptyString(data.invoice, "invoice");
@@ -174,7 +166,7 @@ async function checkClientDuplicate({ db, data }) {
     const snapshot = await db
       .collection("clients")
       .where("name", "==", name)
-      .where("date_added", "==", date_added)
+      .where("date_added_key", "==", date_added)
       .where("amount", "==", amount)
       .limit(1)
       .get();
