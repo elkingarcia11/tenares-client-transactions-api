@@ -7,6 +7,30 @@ const { requireFirebaseAuth, assertAdminFromDecoded } = require("./auth");
 const clientSvc = require("../services/clients");
 const userSvc = require("../services/users");
 
+function applyCors(req, res) {
+  // Configure allowed origins via env var if needed (comma-separated).
+  // Default: allow all origins (safest for development; restrict in production).
+  const configured = process.env.CORS_ORIGINS;
+  const origin = req.headers.origin;
+
+  if (!configured) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+  } else if (origin) {
+    const allowed = configured
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (allowed.includes(origin)) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      res.setHeader("Vary", "Origin");
+    }
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Max-Age", "3600");
+}
+
 function json(res, status, body) {
   res.status(status);
   res.set("Content-Type", "application/json");
@@ -34,6 +58,15 @@ function stripPrefix(pathname) {
 }
 
 functions.http("api", async (req, res) => {
+  // Always apply CORS headers (success + error responses).
+  applyCors(req, res);
+
+  // Short-circuit preflight requests.
+  if ((req.method || "OPTIONS").toUpperCase() === "OPTIONS") {
+    res.status(204);
+    return res.send("");
+  }
+
   try {
     const url = new URL(req.url, "http://localhost");
     const path = stripPrefix(url.pathname);
