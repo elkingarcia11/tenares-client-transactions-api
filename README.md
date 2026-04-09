@@ -35,6 +35,7 @@ For endpoints that require auth, send:
 - `Authorization: Bearer <Firebase ID token>`
 
 Admin-only endpoints require a custom claim on the token:
+
 - `role: "admin"` (or `roles` array containing `"admin"`)
 
 ### First admin (no existing admin yet)
@@ -91,10 +92,10 @@ When deploying, configure **environment variables** on the Cloud Run service to 
 **Service account JSON (assumed model):** put the full key JSON in **Secret Manager**, **mount it as a file** on the Cloud Run revision (volume from secret), and set **`GOOGLE_APPLICATION_CREDENTIALS`** to the **in-container path** of that file. Do not bake the key into the container image. Plain env vars are enough for non-secret values (`GOOGLE_CLOUD_PROJECT`, `CORS_ORIGINS`).
 
 Ensure the credentials used (mounted key or Cloud Run service account) have IAM access to:
+
 - **Firestore** (read/write `clients` collection)
 - **Firebase Auth** (verify ID tokens, set custom claims for roles)
 
 ## Notes
 
 - `functions/src/` still exports Firebase **callable/trigger** code for optional use; **Cloud Run only runs the HTTP `api` handler** (plus `helloHttp`). Do not point clients at callables if you deploy Cloud Run only.
-
