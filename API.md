@@ -1,47 +1,35 @@
-# API (Cloud Run + Functions Framework)
+# HTTP API (Google Cloud Run)
 
-This repo is intended to be deployed as a **Cloud Run service** using **Functions Framework**.
+The **production** deployment target is **Google Cloud Run**: a containerized service with a public HTTPS URL. **Traffic is not served by the Firebase Cloud Functions runtime** — assume **no** `firebase deploy` of callables for your app’s API.
 
-## What is deployed
+Inside the image, **`@google-cloud/functions-framework`** runs as the HTTP server (e.g. `--target=api`). That is a common Node pattern for Cloud Run; it is **not** the same as deploying this repo as Firebase callable functions.
 
-Functions Framework exposes **HTTP functions** registered via `@google-cloud/functions-framework`.
+## What runs on Cloud Run
 
-Registered HTTP functions:
+- **Primary**: the `api` HTTP handler — JSON routes under your service URL (`/healthz`, `/users/me`, `/clients`, …).
+- **Optional demo**: `helloHttp`.
 
-- `api` (JSON API router)
-- `helloHttp` (demo)
-
-## Local run
-
-From the `functions/` directory:
-
-- Install deps: `npm i`
-- Run locally: `npm start`
-  - This runs `functions-framework --source=index.js --target=api`
+Local development mirrors production: from `functions/`, `npm start` runs `functions-framework --source=index.js --target=api`.
 
 ## Conventions (HTTP)
 
 - **Content-Type**: prefer JSON for APIs; `helloHttp` responds with plain text.
-- **Auth**: for Cloud Run you typically enforce either:
-  - **Cloud Run IAM** (service requires authentication), or
-  - **Firebase Auth ID tokens** verified server-side (requires custom implementation).
+- **Auth**: this API verifies **Firebase Auth ID tokens** in app code (`Authorization: Bearer …`). You may also add **Cloud Run IAM** (invoker) in front of the service if you want Google-signed access in addition to app-level auth.
 
 ---
 
-## HTTP Functions (Cloud Run)
+## HTTP API (`api` target)
 
-### `api` (HTTP, JSON)
+This is the only entrypoint **clients should use** when the service runs on Cloud Run.
 
-This is the primary HTTP entrypoint. It routes based on path + method.
-
-#### Auth model
+### Auth model
 
 - For endpoints that require auth, send:
   - `Authorization: Bearer <Firebase ID token>`
 - Admin-only endpoints require the token to include the custom claim:
   - `role: "admin"` (or `roles` array including `"admin"`)
 
-#### Common responses
+### Common responses
 
 - **Success**: JSON body
 - **Error**:
@@ -52,15 +40,15 @@ This is the primary HTTP entrypoint. It routes based on path + method.
 }
 ```
 
-#### Routes
+### Routes
 
-##### Health
+#### Health
 
 - `GET /healthz`
   - **Auth**: none
   - **Return**: `{ "ok": true }`
 
-##### Users
+#### Users
 
 - `GET /users/me`
   - **Auth**: required
@@ -71,7 +59,7 @@ This is the primary HTTP entrypoint. It routes based on path + method.
 ```
 
 - `POST /users/setRole`
-  - **Auth**: **admin only**
+  - **Auth**: **admin only** (`Authorization: Bearer <Firebase ID token>` with admin custom claim)
   - **Request**:
 
 ```json
@@ -84,7 +72,7 @@ This is the primary HTTP entrypoint. It routes based on path + method.
 { "success": true, "targetUid": "string", "newRole": "admin|secretary" }
 ```
 
-##### Clients
+#### Clients
 
 - `POST /clients/checkDuplicate`
   - **Auth**: none enforced by endpoint
@@ -130,9 +118,9 @@ This is the primary HTTP entrypoint. It routes based on path + method.
 { "success": true, "docId": "string" }
 ```
 
-### `helloHttp` (HTTP)
+### `helloHttp` (demo)
 
-- **Method**: any (Functions Framework accepts all; treat it as GET/POST friendly)
+- **Method**: any (framework accepts all; treat as GET/POST friendly)
 - **Request**
   - Optional query param: `name`
   - Optional JSON body: `{ "name": "..." }`
@@ -141,228 +129,9 @@ This is the primary HTTP entrypoint. It routes based on path + method.
   - Body: `Hello <name>!` (defaults to `World`)
 
 ---
-## Firebase Functions code (internal)
 
-The repo still contains Firebase Functions-style callable/trigger exports under `functions/src/*` mainly to reuse logic and keep parity, but **Cloud Run clients should use the HTTP routes above**.
+## Legacy: Firebase callable/trigger modules
 
-### `addClientDocument` (callable)
+Under `functions/src/` there are still **Firebase Cloud Functions** exports (callables + a Firestore trigger). **A Cloud Run–only deployment does not execute those** — they are not wired into the Cloud Run request path.
 
-- **Auth**: **admin only**
-- **Request**
-
-```json
-{
-  "name": "string",
-  "amount": 12.34,
-  "date_added": "mm-dd-yyyy",
-  "date_processed": "yyyy-mm-dd",
-  "invoice": "string",
-  "receipt": "string",
-
-  "hours": 11,
-  "minutes": 28,
-  "seconds": 19
-}
-```
-
-- **Notes**
-  - `name` is stored as `trim().toLowerCase()`
-  - `amount` must be a finite number > 0
-  - `date_added` is converted to a Firestore `Timestamp` using a UTC-4 offset
-  - Optional `hours/minutes/seconds` default to `11/28/19`
-  - Writes `_sanitized: true`
-
-- **Return**
-
-```json
-{ "success": true, "docId": "string" }
-```
-
-- **Errors**
-  - `unauthenticated`: not signed in
-  - `permission-denied`: not an admin
-  - `invalid-argument`: missing/invalid fields
-  - `internal`: Firestore write failed
-
----
-
-### `updateClientDocument` (callable)
-
-- **Auth**: **admin only**
-- **Request**
-
-```json
-{
-  "docId": "string",
-
-  "name": "string",
-  "amount": 12.34,
-  "date_added": "mm-dd-yyyy",
-  "date_processed": "yyyy-mm-dd",
-  "invoice": "string",
-  "receipt": "string",
-
-  "hours": 11,
-  "minutes": 28,
-  "seconds": 19
-}
-```
-
-- **Notes**
-  - `docId` is required
-  - At least one updatable field must be present
-  - Writes `_sanitized: true`
-
-- **Return**
-
-```json
-{ "success": true, "docId": "string" }
-```
-
-- **Errors**
-  - `unauthenticated`: not signed in
-  - `permission-denied`: not an admin
-  - `invalid-argument`: missing/invalid fields
-  - `not-found`: document does not exist
-  - `internal`: Firestore update failed
-
----
-
-### `deleteClientDocument` (callable)
-
-- **Auth**: **admin only**
-- **Request**
-
-```json
-{ "docId": "string" }
-```
-
-- **Return**
-
-```json
-{ "success": true, "docId": "string" }
-```
-
-- **Errors**
-  - `unauthenticated`: not signed in
-  - `permission-denied`: not an admin
-  - `invalid-argument`: missing/invalid `docId`
-  - `not-found`: document does not exist
-  - `internal`: Firestore delete failed
-
----
-
-### `checkClientDuplicate` (callable)
-
-- **Auth**: none enforced by function (callable can be invoked by any client)
-- **Request**
-
-```json
-{
-  "name": "string",
-  "date_added": "mm-dd-yyyy",
-  "amount": 12.34
-}
-```
-
-- **Return**
-
-```json
-{ "status": "duplicate exists" }
-```
-
-or
-
-```json
-{ "status": "duplicate does not exist" }
-```
-
-- **Errors**
-  - `invalid-argument`: missing/invalid fields
-  - `internal`: Firestore query failed
-
----
-
-### `sanitizeClientDocument` (firestore trigger)
-
-- **Type**: trigger on writes to `clients/{docId}`
-- **Purpose**
-  - Validates/sanitizes the document fields on create/update.
-  - Uses `_sanitized` flag to prevent infinite loops.
-  - On invalid **create**: deletes the document.
-  - On invalid **update**: restores the previous version.
-  - Logs a record to `clients_sanitization_errors`.
-
-- **No direct request/return** (trigger function).
-
----
-
-## Users / Roles
-
-### `setUserRole` (callable)
-
-- **Auth**: **admin only**
-- **Request**
-
-```json
-{
-  "targetUid": "string",
-  "newRole": "admin"
-}
-```
-
-or
-
-```json
-{
-  "targetUid": "string",
-  "newRole": "secretary"
-}
-```
-
-- **Behavior**
-  - Sets Firebase Auth custom claims on the target user:
-
-```json
-{ "role": "admin|secretary" }
-```
-
-- **Return**
-
-```json
-{ "success": true, "targetUid": "string", "newRole": "admin|secretary" }
-```
-
-- **Errors**
-  - `unauthenticated`: not signed in
-  - `permission-denied`: not an admin
-  - `invalid-argument`: missing/invalid `targetUid` or `newRole`
-  - `not-found`: target user does not exist
-  - `internal`: failed setting claims
-
-- **Client note**
-  - After changing claims, the target user usually needs to **refresh their ID token**
-    (sign out/in, or call `getIdToken(true)` on the client) for new claims to appear.
-
----
-
-### `verifyCaller` (callable)
-
-- **Auth**: authenticated user (any role)
-- **Request**
-  - No payload required.
-
-- **Return**
-
-```json
-{
-  "uid": "string",
-  "role": "admin|secretary|null",
-  "isAdmin": true,
-  "isSecretary": false
-}
-```
-
-- **Errors**
-  - `unauthenticated`: not signed in
-
+Use the **HTTP routes** in this document. Shared logic lives in `functions/src/services/` and `functions/src/http/api.js`. If you maintain a separate Firebase Functions deployment, inspect `functions/src/clients/` and `functions/src/users/` for callable shapes and errors.

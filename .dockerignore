@@ -12,7 +12,18 @@ ui-debug.log
 
 .DS_Store
 
-# local env / secrets
+# Never copy local env or credential files into the image — Cloud Run provides these.
 .env
 .env.*
+**/.env
+**/.env.*
+.env.example
+**/.env.example
 
+**/local.json
+local.json
+
+*serviceAccount*.json
+*service-account*.json
+*sa-key*.json
+application_default_credentials.json

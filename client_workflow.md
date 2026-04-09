@@ -1,6 +1,6 @@
 # Client workflows (clients collection)
 
-This file documents the recommended client workflows for managing documents in the `clients` collection **via the HTTP API** exposed by Cloud Run + Functions Framework.
+This file documents client workflows for the `clients` collection **via the HTTP API** on your **Cloud Run** service URL (not Firebase callable functions).
 
 ## API base + auth
 

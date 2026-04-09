@@ -6,10 +6,12 @@
     "node": "18"
   },
   "scripts": {
-    "start": "functions-framework --source=index.js --target=api"
+    "start": "functions-framework --source=index.js --target=api",
+    "set-user-role": "node scripts/setUserRole.js"
   },
   "dependencies": {
     "@google-cloud/functions-framework": "^3.0.0",
+    "dotenv": "^16.4.5",
     "firebase-admin": "^13.5.0",
     "firebase-functions": "^6.4.0"
   }

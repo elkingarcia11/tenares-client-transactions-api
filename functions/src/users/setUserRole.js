@@ -1,4 +1,4 @@
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onCall } = require("firebase-functions/v2/https");
 
 const { auth } = require("../shared/firebase");
 const { assertCallerIsAdmin } = require("../shared/authz");
@@ -14,4 +14,3 @@ exports.setUserRole = onCall(async (request) => {
     newRole: data.newRole,
   });
 });
-

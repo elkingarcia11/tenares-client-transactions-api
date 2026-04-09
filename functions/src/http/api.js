@@ -6,23 +6,11 @@ const { requireFirebaseAuth, assertAdminFromDecoded } = require("./auth");
 
 const clientSvc = require("../services/clients");
 const userSvc = require("../services/users");
+const { parseCorsOrigins } = require("../shared/localDev");
 
 function applyCors(req, res) {
-  // TEMP (local dev): hardcode your frontend origin.
-  // Remove this and rely on CORS_ORIGINS when you're done testing.
-  const hardcodedLocalOrigin = "http://localhost:5173";
-  const configured = process.env.CORS_ORIGINS;
   const origin = req.headers.origin;
-
-  const allowed = [
-    hardcodedLocalOrigin,
-    ...(!configured
-      ? []
-      : configured
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)),
-  ];
+  const allowed = parseCorsOrigins();
 
   if (origin && allowed.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
@@ -86,7 +74,7 @@ functions.http("api", async (req, res) => {
       return json(res, 200, userSvc.verifyCaller({ decodedToken: decoded }));
     }
 
-    // Admin: set role
+    // Set role (admin only)
     if (method === "POST" && path === "/users/setRole") {
       const decoded = await requireFirebaseAuth(req);
       assertAdminFromDecoded(decoded);
@@ -99,7 +87,7 @@ functions.http("api", async (req, res) => {
       return json(res, 200, result);
     }
 
-    // Duplicate check (no auth enforced here; keep consistent with prior callable)
+    // Duplicate check (no auth enforced here)
     if (method === "POST" && path === "/clients/checkDuplicate") {
       const body = await readJsonBody(req);
       const result = await clientSvc.checkClientDuplicate({ db: db(), data: body });

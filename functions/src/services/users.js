@@ -2,6 +2,15 @@ const { HttpsError } = require("firebase-functions/v2/https");
 
 const ALLOWED_ROLES = new Set(["admin", "secretary"]);
 
+/** Firebase Admin Auth errors often set `code` to values like `auth/user-not-found`. */
+function authErrorCode(err) {
+  if (!err) return "";
+  const c = err.code;
+  if (typeof c === "string" && c.startsWith("auth/")) return c;
+  if (typeof err.errorInfo?.code === "string") return err.errorInfo.code;
+  return "";
+}
+
 async function setUserRole({ auth, targetUid, newRole }) {
   const uid = typeof targetUid === "string" ? targetUid.trim() : "";
   const role = typeof newRole === "string" ? newRole.trim() : "";
@@ -18,11 +27,22 @@ async function setUserRole({ auth, targetUid, newRole }) {
     await auth.setCustomUserClaims(uid, { role });
     return { success: true, targetUid: uid, newRole: role };
   } catch (err) {
-    console.error("[setUserRole] Failed to set custom claims:", err);
-    if (err?.code === "auth/user-not-found") {
+    const code = authErrorCode(err);
+    console.error("[setUserRole] Failed to set custom claims:", code || err?.message, err);
+    if (code === "auth/user-not-found") {
       throw new HttpsError("not-found", `No user found for targetUid: ${uid}`);
     }
-    throw new HttpsError("internal", "Failed to set user role.");
+    if (code === "auth/invalid-uid") {
+      throw new HttpsError("invalid-argument", "targetUid is not a valid Firebase Auth UID.");
+    }
+    if (code === "auth/insufficient-permission" || code === "auth/forbidden") {
+      throw new HttpsError(
+        "permission-denied",
+        "Service account cannot set custom claims. Grant this account a role that includes Firebase Authentication Admin (or use credentials for the correct Firebase project)."
+      );
+    }
+    const suffix = code ? ` ${code}` : "";
+    throw new HttpsError("internal", `Failed to set user role.${suffix}`);
   }
 }
 

@@ -22,3 +22,6 @@ ui-debug.log
 *service-account*.json
 *sa-key*.json
 application_default_credentials.json
+
+# Local service account filename (if used with GOOGLE_APPLICATION_CREDENTIALS=./local.json)
+functions/local.json
